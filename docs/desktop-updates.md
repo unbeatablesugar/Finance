@@ -22,14 +22,14 @@
 4. 确保仓库启用 Actions，工作流可写入 Releases。软件用户必须能匿名下载 Releases；私有仓库需另建公开发布仓库或带鉴权的服务，不能把 GitHub Token 放进安装包。
 5. 在 Actions 中手动运行 **Windows desktop release**，或推送版本号变化。工作流先生成草稿并上传全部文件，通过清单检查后自动发布，避免软件读到未上传完成的更新。
 
-本地目录目前没有 Git 元数据。以上是已准备好的代码与工作流；是否已上传、仓库是否公开、Secrets 是否配置，须以 GitHub 的实际状态为准。未发布 `latest.json` 时，检查更新会提示失败，不影响记账。
+源码仓库已关联 GitHub，并包含自动发布工作流。个人数据隔离规则见 [公开源码与个人账本隔离](public-data-isolation.md)。首次发布完成前，检查更新可能提示暂不可用，不影响记账。
 
 ## 以后如何更新
 
 在项目根目录运行（替换为比当前版本更高的版本号）：
 
 ```powershell
-npm.cmd run release:version -- 0.3.0
+npm.cmd run release:version -- 0.3.1
 ```
 
 该命令同步前端、Tauri、两个 Rust 包与锁文件的版本号。提交代码并推送到 `main` 或 `master`，GitHub Actions 便会自动：
