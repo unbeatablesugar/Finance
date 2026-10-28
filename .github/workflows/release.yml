@@ -6,6 +6,11 @@ on:
     paths: [package.json]
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      publish_existing:
+        description: Verify and publish an already-built draft without rebuilding
+        type: boolean
+        default: false
 
 concurrency:
   group: windows-release
@@ -47,7 +52,7 @@ jobs:
           }
           exit 0
       - name: Check signing key is configured
-        if: steps.published.outputs.exists != 'true'
+        if: steps.published.outputs.exists != 'true' && inputs.publish_existing != true
         env:
           UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         shell: pwsh
@@ -56,24 +61,24 @@ jobs:
             throw 'Add TAURI_SIGNING_PRIVATE_KEY in repository Settings > Secrets and variables > Actions. See docs/desktop-updates.md.'
           }
       - uses: dtolnay/rust-toolchain@stable
-        if: steps.published.outputs.exists != 'true'
+        if: steps.published.outputs.exists != 'true' && inputs.publish_existing != true
         with:
           targets: x86_64-pc-windows-msvc
       - uses: swatinem/rust-cache@v2
-        if: steps.published.outputs.exists != 'true'
+        if: steps.published.outputs.exists != 'true' && inputs.publish_existing != true
         with:
           workspaces: src-tauri -> target
       - name: Install frontend dependencies
-        if: steps.published.outputs.exists != 'true'
+        if: steps.published.outputs.exists != 'true' && inputs.publish_existing != true
         run: npm ci
       - name: Verify update and ledger behavior
-        if: steps.published.outputs.exists != 'true'
+        if: steps.published.outputs.exists != 'true' && inputs.publish_existing != true
         run: npm test
       - name: Verify native ledger behavior
-        if: steps.published.outputs.exists != 'true'
+        if: steps.published.outputs.exists != 'true' && inputs.publish_existing != true
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml -p qinghe-core
       - name: Build signed installer and upload release assets
-        if: steps.published.outputs.exists != 'true'
+        if: steps.published.outputs.exists != 'true' && inputs.publish_existing != true
         id: bundle
         uses: tauri-apps/tauri-action@v1
         env:
@@ -89,6 +94,7 @@ jobs:
           generateReleaseNotes: true
           uploadUpdaterJson: true
           updaterJsonPreferNsis: true
+          releaseAssetNamePattern: 'QingheLedger_[version]_[arch][setup].[ext]'
           args: --target x86_64-pc-windows-msvc -- --locked
       - name: Verify assets and publish the complete release
         if: steps.published.outputs.exists != 'true'
@@ -104,6 +110,9 @@ jobs:
           if ($manifest.version.TrimStart('v') -ne $env:RELEASE_VERSION) { throw 'Updater manifest version mismatch.' }
           $platform = $manifest.platforms.'windows-x86_64'
           if (!$platform) { $platform = $manifest.platforms.'windows-x86_64-nsis' }
-          if (!$platform.signature -or $platform.url -notlike 'https://github.com/*') { throw 'Updater signature or installer URL is missing.' }
+          $installerUri = [Uri]$platform.url
+          $directAsset = $installerUri.Host -eq 'github.com' -and $installerUri.AbsolutePath -like "/$env:GITHUB_REPOSITORY/releases/download/*"
+          $apiAsset = $installerUri.Host -eq 'api.github.com' -and $installerUri.AbsolutePath -match "^/repos/$([regex]::Escape($env:GITHUB_REPOSITORY))/releases/assets/[0-9]+$"
+          if (!$platform.signature -or $installerUri.Scheme -ne 'https' -or !($directAsset -or $apiAsset)) { throw 'Updater signature or installer URL is missing or outside this repository.' }
           gh release edit $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --draft=false --latest
           if ($LASTEXITCODE -ne 0) { throw 'Could not publish release.' }
