@@ -20,11 +20,17 @@
 2. 在仓库 **Settings → Secrets and variables → Actions → New repository secret** 中添加 `TAURI_SIGNING_PRIVATE_KEY`，内容取本机项目 `.keys/qinghe-updater.key` 的**完整文件内容**。已生成与 `src-tauri/tauri.conf.json` 公钥配对的私钥；它没有密码，`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` 可不设置。
 3. 私钥是持续发布更新的凭据，请在安全位置另存一份。`.keys/` 已加入忽略规则，不可提交到源码或打包给软件用户。不要重新生成覆盖它，已安装客户端信任的是现有公钥。
 4. 确保仓库启用 Actions，工作流可写入 Releases。软件用户必须能匿名下载 Releases；私有仓库需另建公开发布仓库或带鉴权的服务，不能把 GitHub Token 放进安装包。
-5. 在 Actions 中手动运行 **Windows desktop release**，或推送版本号变化。工作流先生成草稿并上传全部文件，通过清单检查后自动发布，避免软件读到未上传完成的更新。
+5. 只有明确要求发布安装包时，才在 Actions 中手动运行 **Windows desktop release**。普通代码推送、版本号变化和版本标签均不触发打包或发布。
 
 源码仓库已关联 GitHub，并包含自动发布工作流。个人数据隔离规则见 [公开源码与个人账本隔离](public-data-isolation.md)。首次发布完成前，检查更新可能提示暂不可用，不影响记账。
 
-## 以后如何更新
+## 日常修改：只上传源码
+
+日常修改完成后，执行必要的测试与个人数据隔离检查，再提交并推送源码。这个过程不会生成安装包，也不会创建 Releases。
+
+只有明确要求打包时才生成本地安装包；只有明确要求发布安装包时才手动运行 GitHub 发布工作流。提高版本号也不会自动触发打包。
+
+## 明确要求发布安装包时
 
 在项目根目录运行（替换为比当前版本更高的版本号）：
 
@@ -32,14 +38,14 @@
 npm.cmd run release:version -- 0.3.1
 ```
 
-该命令同步前端、Tauri、两个 Rust 包与锁文件的版本号。提交代码并推送到 `main` 或 `master`，GitHub Actions 便会自动：
+该命令只同步前端、Tauri、两个 Rust 包与锁文件的版本号。提交并推送代码后，仍须在明确要求发布时手动运行 Actions 中的 **Windows desktop release**，工作流才会：
 
 1. 校验版本一致，跳过已发布的同版本。
 2. 运行前端测试、Rust 账本测试。
 3. 用标准 MSVC 工具链构建正式 Windows x64 安装器，签名并生成 `latest.json`。
 4. 上传 `.exe`、`.sig` 和 `latest.json`，检查完成后发布到 Releases。
 
-也支持推送与软件版本一致的 `v0.3.0` 标签或手动运行工作流。仅修改代码而未提高版本号，不会让已安装的软件提示升级。**新版仍须构建发布一次；用户侧不再需要接收独立压缩包或手工替换 exe。**
+仅上传源码不会让已安装的软件提示升级。安装包在明确要求后单独构建、发布；发布更高版本后，客户端才能在软件内下载更新。
 
 ## 本机正式打包
 
