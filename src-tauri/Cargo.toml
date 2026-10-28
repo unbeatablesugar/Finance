@@ -1,0 +1,30 @@
+[package]
+name = "qinghe-finance"
+version = "0.3.0"
+description = "青禾账本 — local-first personal finance"
+authors = ["Qinghe"]
+edition = "2021"
+
+[lib]
+name = "qinghe_finance_lib"
+crate-type = ["rlib"]
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+qinghe-core = { path = "core" }
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-updater = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.37", features = ["bundled", "backup"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }
+
+[workspace]
+members = ["core"]

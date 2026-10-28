@@ -1,0 +1,109 @@
+name: Windows desktop release
+
+on:
+  push:
+    branches: [main, master]
+    paths: [package.json]
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: windows-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Check application versions
+        id: version
+        run: node scripts/release-version.mjs --check
+      - name: Reject private data and unreviewed source files
+        run: node scripts/check-public-files.mjs
+      - name: Skip a version that is already published
+        id: published
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        shell: pwsh
+        run: |
+          $release = gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:RELEASE_TAG" 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            $draft = ($release | ConvertFrom-Json).draft
+            "exists=$(-not $draft)".ToLowerInvariant() >> $env:GITHUB_OUTPUT
+          } else {
+            # A missing tag is expected for a new release; other API failures must fail.
+            $status = gh api -i "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:RELEASE_TAG" 2>&1 | Out-String
+            if ($status -notmatch 'HTTP/[^\s]+ 404') { throw $status }
+            "exists=false" >> $env:GITHUB_OUTPUT
+          }
+          exit 0
+      - name: Check signing key is configured
+        if: steps.published.outputs.exists != 'true'
+        env:
+          UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:UPDATER_KEY)) {
+            throw 'Add TAURI_SIGNING_PRIVATE_KEY in repository Settings > Secrets and variables > Actions. See docs/desktop-updates.md.'
+          }
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.published.outputs.exists != 'true'
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: swatinem/rust-cache@v2
+        if: steps.published.outputs.exists != 'true'
+        with:
+          workspaces: src-tauri -> target
+      - name: Install frontend dependencies
+        if: steps.published.outputs.exists != 'true'
+        run: npm ci
+      - name: Verify update and ledger behavior
+        if: steps.published.outputs.exists != 'true'
+        run: npm test
+      - name: Verify native ledger behavior
+        if: steps.published.outputs.exists != 'true'
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml -p qinghe-core
+      - name: Build signed installer and upload release assets
+        if: steps.published.outputs.exists != 'true'
+        id: bundle
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ steps.version.outputs.tag }}
+          releaseName: '青禾账本 v${{ steps.version.outputs.version }}'
+          releaseBody: '安装一次，后续可在「设置与备份 → 软件更新」中直接升级。账本保存在本地，安装前自动备份。'
+          releaseDraft: true
+          prerelease: false
+          generateReleaseNotes: true
+          uploadUpdaterJson: true
+          updaterJsonPreferNsis: true
+          args: --target x86_64-pc-windows-msvc --locked
+      - name: Verify assets and publish the complete release
+        if: steps.published.outputs.exists != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        shell: pwsh
+        run: |
+          gh release download $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --pattern latest.json --dir release-check --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Updater manifest is missing.' }
+          $manifest = Get-Content release-check/latest.json -Raw | ConvertFrom-Json
+          if ($manifest.version.TrimStart('v') -ne $env:RELEASE_VERSION) { throw 'Updater manifest version mismatch.' }
+          $platform = $manifest.platforms.'windows-x86_64'
+          if (!$platform) { $platform = $manifest.platforms.'windows-x86_64-nsis' }
+          if (!$platform.signature -or $platform.url -notlike 'https://github.com/*') { throw 'Updater signature or installer URL is missing.' }
+          gh release edit $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --draft=false --latest
+          if ($LASTEXITCODE -ne 0) { throw 'Could not publish release.' }
