@@ -89,7 +89,7 @@ jobs:
           generateReleaseNotes: true
           uploadUpdaterJson: true
           updaterJsonPreferNsis: true
-          args: --target x86_64-pc-windows-msvc --locked
+          args: --target x86_64-pc-windows-msvc -- --locked
       - name: Verify assets and publish the complete release
         if: steps.published.outputs.exists != 'true'
         env:
